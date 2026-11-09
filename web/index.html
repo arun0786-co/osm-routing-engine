@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Road router</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --fg: #1d1d1f; --muted: #6b6b70; --line: #e3e3e6; --accent: #1f4e79; --bg: #ffffff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 14px/1.4 -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--fg); background: var(--bg); }
+  #map { position: absolute; inset: 0 360px 0 0; }
+  #panel { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; padding: 16px; overflow-y: auto; border-left: 1px solid var(--line); }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p.hint { color: var(--muted); margin: 0 0 14px; }
+  .big { font-size: 26px; font-weight: 600; }
+  .row { display: flex; gap: 20px; margin: 8px 0 16px; }
+  .label { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 4px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-weight: 500; color: var(--muted); font-size: 12px; }
+  tr.ch td { font-weight: 600; color: var(--accent); }
+  button { font: inherit; padding: 6px 10px; border: 1px solid var(--line); background: #fafafa; border-radius: 6px; cursor: pointer; }
+  #status { color: var(--muted); margin-top: 10px; min-height: 1.4em; }
+  @media (max-width: 700px) {
+    #map { inset: 0 0 45% 0; }
+    #panel { top: 55%; width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Road router</h1>
+  <p class="hint">Click the map to set the start, click again for the destination. Drag the markers to move them.</p>
+  <div id="summary" hidden>
+    <div class="row">
+      <div><div class="label">driving time</div><div class="big" id="dur"></div></div>
+      <div><div class="label">distance</div><div class="big" id="dist"></div></div>
+    </div>
+    <table>
+      <thead><tr><th>algorithm</th><th>query time</th><th>nodes settled</th></tr></thead>
+      <tbody id="cmp"></tbody>
+    </table>
+  </div>
+  <div id="status"></div>
+  <p><button id="reset">Clear</button></p>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map("map").setView([17.42, 78.45], 11);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+const names = { dijkstra: "Dijkstra", bidirectional: "Bidirectional", astar: "A*", alt: "ALT", ch: "Contraction hierarchy" };
+let start = null, end = null, line = null;
+const status = document.getElementById("status");
+
+function fmtTime(s) {
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+}
+function fmtUs(us) { return us < 1000 ? `${us.toFixed(0)} µs` : `${(us / 1000).toFixed(1)} ms`; }
+
+function marker(latlng) {
+  const m = L.marker(latlng, { draggable: true }).addTo(map);
+  m.on("dragend", route);
+  return m;
+}
+
+map.on("click", e => {
+  if (!start) { start = marker(e.latlng); status.textContent = "Now click the destination."; }
+  else if (!end) { end = marker(e.latlng); route(); }
+  else { end.setLatLng(e.latlng); route(); }
+});
+
+async function route() {
+  if (!start || !end) return;
+  const a = start.getLatLng(), b = end.getLatLng();
+  const q = `from=${a.lat},${a.lng}&to=${b.lat},${b.lng}`;
+  status.textContent = "Routing...";
+  try {
+    const r = await (await fetch(`/route?${q}`)).json();
+    if (r.error) throw new Error(r.error);
+    if (line) map.removeLayer(line);
+    line = L.polyline(r.geometry, { color: "#1f4e79", weight: 5, opacity: 0.85 }).addTo(map);
+    start.setLatLng(r.from); end.setLatLng(r.to);
+    document.getElementById("dur").textContent = fmtTime(r.duration_s);
+    document.getElementById("dist").textContent = `${(r.distance_m / 1000).toFixed(1)} km`;
+    const c = await (await fetch(`/compare?${q}`)).json();
+    document.getElementById("cmp").innerHTML = c.results.map(x =>
+      `<tr class="${x.algorithm}"><td>${names[x.algorithm]}</td><td>${fmtUs(x.query_us)}</td><td>${x.settled.toLocaleString()}</td></tr>`
+    ).join("");
+    document.getElementById("summary").hidden = false;
+    status.textContent = "";
+  } catch (err) {
+    status.textContent = "Error: " + err.message;
+  }
+}
+
+document.getElementById("reset").onclick = () => {
+  [start, end, line].forEach(x => x && map.removeLayer(x));
+  start = end = line = null;
+  document.getElementById("summary").hidden = true;
+  status.textContent = "";
+};
+</script>
+</body>
+</html>
