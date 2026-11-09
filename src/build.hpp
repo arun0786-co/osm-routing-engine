@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "graph.hpp"
 #include "pbf.hpp"
@@ -20,4 +21,7 @@ struct BuildStats {
     double seconds_ways = 0, seconds_nodes = 0, seconds_graph = 0;
 };
 
-Graph build_graph(const std::string& pbf_path, int threads, BuildStats* stats = nullptr);
+// Several extracts can be merged (e.g. neighbouring states); ways that
+// appear in more than one file are kept once.
+Graph build_graph(const std::vector<std::string>& pbf_paths, int threads,
+                  BuildStats* stats = nullptr);

@@ -54,6 +54,7 @@ bool is_one_of(std::string_view v, std::initializer_list<std::string_view> xs) {
 }
 
 struct RoutableWay {
+    int64_t id;
     std::vector<int64_t> refs;
     double speed_kmh;
     bool fwd, bwd;
@@ -90,25 +91,33 @@ RoadClass classify(const osm::Tags& tags) {
     return rc;
 }
 
-Graph build_graph(const std::string& path, int threads, BuildStats* st) {
+Graph build_graph(const std::vector<std::string>& paths, int threads, BuildStats* st) {
     BuildStats local;
     BuildStats& s = st ? *st : local;
-    osm::PbfFile file(path);
 
     // pass 1: drivable ways, kept per block so the result does not depend
     // on thread scheduling
     auto t = Clock::now();
-    std::vector<std::vector<RoutableWay>> per_block(file.num_blocks());
-    file.for_each_way(threads, [&](size_t bi, const osm::Way& w) {
-        if (w.refs.size() < 2) return;
-        RoadClass rc = classify(w.tags);
-        if (!rc.routable || (!rc.forward && !rc.backward)) return;
-        per_block[bi].push_back({w.refs, rc.speed_kmh, rc.forward, rc.backward});
-    });
     std::vector<RoutableWay> ways;
-    for (auto& b : per_block)
-        for (auto& w : b) ways.push_back(std::move(w));
-    per_block.clear();
+    for (const auto& path : paths) {
+        osm::PbfFile file(path);
+        std::vector<std::vector<RoutableWay>> per_block(file.num_blocks());
+        file.for_each_way(threads, [&](size_t bi, const osm::Way& w) {
+            if (w.refs.size() < 2) return;
+            RoadClass rc = classify(w.tags);
+            if (!rc.routable || (!rc.forward && !rc.backward)) return;
+            per_block[bi].push_back({w.id, w.refs, rc.speed_kmh, rc.forward, rc.backward});
+        });
+        for (auto& b : per_block)
+            for (auto& w : b) ways.push_back(std::move(w));
+    }
+    // a way crossing a border is in both extracts; keep one copy, or every
+    // shape point on it would count as used twice and become a junction
+    std::stable_sort(ways.begin(), ways.end(),
+                     [](const RoutableWay& a, const RoutableWay& b) { return a.id < b.id; });
+    ways.erase(std::unique(ways.begin(), ways.end(),
+                           [](const RoutableWay& a, const RoutableWay& b) { return a.id == b.id; }),
+               ways.end());
     s.ways = ways.size();
 
     // every referenced node id, with its number of uses
@@ -143,15 +152,18 @@ Graph build_graph(const std::string& path, int threads, BuildStats* st) {
     t = Clock::now();
     std::vector<int32_t> lat(ids.size(), 0), lon(ids.size(), 0);
     std::vector<uint8_t> have(ids.size(), 0);
-    file.for_each_node(threads, [&](size_t, int64_t id, int32_t la, int32_t lo) {
-        auto it = std::lower_bound(ids.begin(), ids.end(), id);
-        if (it != ids.end() && *it == id) {
-            size_t k = size_t(it - ids.begin());
-            lat[k] = la;
-            lon[k] = lo;
-            have[k] = 1;
-        }
-    });
+    for (const auto& path : paths) {
+        osm::PbfFile file(path);
+        file.for_each_node(threads, [&](size_t, int64_t id, int32_t la, int32_t lo) {
+            auto it = std::lower_bound(ids.begin(), ids.end(), id);
+            if (it != ids.end() && *it == id) {
+                size_t k = size_t(it - ids.begin());
+                lat[k] = la;
+                lon[k] = lo;
+                have[k] = 1;
+            }
+        });
+    }
     s.osm_nodes = ids.size();
     for (auto h : have) s.missing_coords += !h;
     s.seconds_nodes = since(t);

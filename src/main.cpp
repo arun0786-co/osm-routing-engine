@@ -1,6 +1,6 @@
 // router: build a road graph from OSM data, contract it, query it, serve it.
 //
-//   router build    <in.osm.pbf> <out.graph>
+//   router build    <in.osm.pbf>... <out.graph>
 //   router contract <graph> <out.ch>
 //   router bench    <graph> <ch> [--queries N] [--landmarks K] [--csv file]
 //   router rank     <graph> <ch> [--sources N] [--csv file]
@@ -52,11 +52,12 @@ T flag(const std::map<std::string, std::string>& f, const char* k, T def) {
 
 int cmd_build(int argc, char** argv) {
     if (argc < 4) return 2;
+    std::vector<std::string> inputs(argv + 2, argv + argc - 1);
     BuildStats s;
     auto t = Clock::now();
-    Graph g = build_graph(argv[2], int(std::thread::hardware_concurrency()), &s);
+    Graph g = build_graph(inputs, int(std::thread::hardware_concurrency()), &s);
     double total = secs(t);
-    g.save(argv[3]);
+    g.save(argv[argc - 1]);
     std::printf("drivable ways      %zu\n", s.ways);
     std::printf("node references    %zu (%zu distinct nodes, %zu without coordinates)\n",
                 s.refs, s.osm_nodes, s.missing_coords);
