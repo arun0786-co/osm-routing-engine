@@ -1,0 +1,12 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -j4 router CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter"
+      - run: make test CXXFLAGS="-std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter"
