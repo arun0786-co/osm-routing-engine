@@ -52,6 +52,25 @@ Many-to-many tables (bucket-based CH, Knopp et al. 2007), random points:
 
 Each run checks 20 full rows against Dijkstra, every entry. None differed.
 
+### Scaling to South India
+
+The same pipeline ran on five state extracts merged into one graph: Telangana, Andhra Pradesh, Karnataka, Tamil Nadu and Kerala (604 MB of PBF). Ways that cross state borders appear in two files and are kept once.
+
+| | Telangana | South India |
+|---|---:|---:|
+| junctions / directed edges | 877k / 2.2M | 5.49M / 13.6M |
+| build graph (peak memory) | 1.3 s (1.0 GB) | 10.0 s (3.9 GB) |
+| contraction (peak memory) | 7.1 s | 40.8 s (2.6 GB) |
+| shortcuts per road edge | 0.79 | 0.76 |
+| Dijkstra, mean query | 23.7 ms | 169 ms |
+| ALT, mean query | 6.0 ms | 23.1 ms |
+| CH, mean / median query | 19.2 / 18.4 µs | 47.8 / 38.7 µs |
+| CH speedup over Dijkstra | 1,236x | 3,532x |
+| 1000 x 1000 table | 0.036 s | 0.059 s |
+| 5000 x 5000 table | 0.51 s | 0.60 s |
+
+With 6.3 times the nodes, contraction took 5.7 times longer, Dijkstra 7 times longer, and a CH query 2.5 times longer. All 500 random queries on the large graph agree with Dijkstra for every algorithm, and all 500 CH paths unpack correctly.
+
 ## How it works
 
 1. **PBF reader** (`src/pbf.cpp`). It decodes the protobuf wire format by hand (varints, zigzag, packed delta-coded arrays), memory-maps the file and inflates blobs on all cores. Its node, way and reference counts and its id and coordinate checksums match pyosmium exactly (`bench/validate_pbf.py`).
@@ -93,7 +112,7 @@ GET /compare?from=...&to=...                  all five algorithms on one query
 GET /table?points=lat,lon;lat,lon;...         travel-time matrix, up to 2000 points
 ```
 
-Data: `curl -LO http://download.openstreetmap.fr/extracts/asia/india/telangana-latest.osm.pbf`. Any OpenStreetMap PBF extract works.
+Data: `curl -LO http://download.openstreetmap.fr/extracts/asia/india/telangana-latest.osm.pbf` (other states use the same URL pattern). Any OpenStreetMap PBF extract works.
 
 ## Layout
 
